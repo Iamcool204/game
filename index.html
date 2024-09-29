@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Space Shooter Deluxe</title>
+    <style>
+        body { margin: 0; overflow: hidden; touch-action: none; background-color: black; }
+        canvas { display: block; }
+        #fire-button {
+            position: absolute;
+            right: 20px;
+            bottom: 20px;
+            width: 80px;
+            height: 80px;
+            background-color: rgba(255,0,0,0.5);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: white;
+        }
+        #game-info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 16px;
+        }
+        @media (min-width: 768px) {
+            #fire-button { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="fire-button">FIRE</div>
+    <div id="game-info"></div>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const fireButton = document.getElementById('fire-button');
+        const gameInfo = document.getElementById('game-info');
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const player = {
+            x: canvas.width / 2,
+            y: canvas.height - 60,
+            width: 50,
+            height: 50,
+            speed: 5,
+            dx: 0,
+            dy: 0
+        };
+
+        const bullets = [];
+        const asteroids = [];
+        let boss = null;
+        let score = 0;
+        let level = 1;
+        let nextLevelScore = 100;
+        let isDragging = false;
+        let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+        function drawPlayer() {
+            ctx.fillStyle = 'lime';
+            ctx.beginPath();
+            ctx.moveTo(player.x, player.y - player.height / 2);
+            ctx.lineTo(player.x - player.width / 2, player.y + player.height / 2);
+            ctx.lineTo(player.x + player.width / 2, player.y + player.height / 2);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        function drawBullets() {
+            ctx.fillStyle = 'yellow';
+            bullets.forEach(bullet => {
+                ctx.beginPath();
+                ctx.arc(bullet.x, bullet.y, 3, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        function drawAsteroids() {
+            ctx.fillStyle = 'gray';
+            asteroids.forEach(asteroid => {
+                ctx.beginPath();
+                ctx.arc(asteroid.x, asteroid.y, asteroid.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = 'darkgray';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            });
+        }
+
+        function drawBoss() {
+            if (boss) {
+                ctx.fillStyle = 'red';
+                ctx.beginPath();
+                ctx.moveTo(boss.x, boss.y - boss.height / 2);
+                ctx.lineTo(boss.x - boss.width / 2, boss.y);
+                ctx.lineTo(boss.x - boss.width / 2, boss.y + boss.height / 2);
+                ctx.lineTo(boss.x + boss.width / 2, boss.y + boss.height / 2);
+                ctx.lineTo(boss.x + boss.width / 2, boss.y);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.fillStyle = 'white';
+                ctx.fillRect(boss.x - 50, boss.y - boss.height / 2 - 20, 100, 10);
+                ctx.fillStyle = 'red';
+                ctx.fillRect(boss.x - 50, boss.y - boss.height / 2 - 20, boss.health, 10);
+            }
+        }
+
+        function updateGameInfo() {
+            gameInfo.innerHTML = `Level: ${level}<br>Score: ${score}<br>Next Level: ${nextLevelScore}`;
+        }
+
+        function createAsteroid() {
+            return {
+                x: Math.random() * canvas.width,
+                y: -30,
+                radius: Math.random() * 20 + 10,
+                speed: Math.random() * (1 + level * 0.1) + 1
+            };
+        }
+
+        function createBoss() {
+            return {
+                x: canvas.width / 2,
+                y: 100,
+                width: 100,
+                height: 100,
+                health: 100 + (level * 20),
+                speed: 0.5 + (level * 0.1)
+            };
+        }
+
+        function updateGame() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            player.x += player.dx;
+            player.y += player.dy;
+            player.x = Math.max(player.width / 2, Math.min(player.x, canvas.width - player.width / 2));
+            player.y = Math.max(player.height / 2, Math.min(player.y, canvas.height - player.height / 2));
+
+            drawPlayer();
+            drawBullets();
+            drawAsteroids();
+            drawBoss();
+            updateGameInfo();
+
+            bullets.forEach((bullet, bulletIndex) => {
+                bullet.y -= 10;
+                if (bullet.y < 0) bullets.splice(bulletIndex, 1);
+
+                asteroids.forEach((asteroid, asteroidIndex) => {
+                    const dx = bullet.x - asteroid.x;
+                    const dy = bullet.y - asteroid.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < asteroid.radius) {
+                        bullets.splice(bulletIndex, 1);
+                        asteroids.splice(asteroidIndex, 1);
+                        score += 25;
+                        checkLevelUp();
+                    }
+                });
+
+                if (boss) {
+                    if (bullet.x > boss.x - boss.width / 2 && bullet.x < boss.x + boss.width / 2 &&
+                        bullet.y > boss.y - boss.height / 2 && bullet.y < boss.y + boss.height / 2) {
+                        bullets.splice(bulletIndex, 1);
+                        boss.health -= 10;
+                        if (boss.health <= 0) {
+                            boss = null;
+                            score += 250;
+                            checkLevelUp();
+                        }
+                    }
+                }
+            });
+
+            asteroids.forEach((asteroid, index) => {
+                asteroid.y += asteroid.speed;
+                if (asteroid.y > canvas.height + asteroid.radius) {
+                    asteroids.splice(index, 1);
+                }
+
+                const dx = player.x - asteroid.x;
+                const dy = player.y - asteroid.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < asteroid.radius + player.width / 2) {
+                    gameOver();
+                }
+            });
+
+            if (boss) {
+                const dx = player.x - boss.x;
+                const dy = player.y - boss.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                boss.x += (dx / distance) * boss.speed;
+                boss.y += (dy / distance) * boss.speed;
+
+                if (Math.abs(player.x - boss.x) < (player.width + boss.width) / 2 &&
+                    Math.abs(player.y - boss.y) < (player.height + boss.height) / 2) {
+                    gameOver();
+                }
+            } else {
+                if (Math.random() < 0.02 + level * 0.005) {
+                    asteroids.push(createAsteroid());
+                }
+            }
+
+            if (asteroids.length === 0 && !boss && level % 5 === 0) {
+                boss = createBoss();
+            }
+
+            requestAnimationFrame(updateGame);
+        }
+
+        function checkLevelUp() {
+            if (score >= nextLevelScore) {
+                level++;
+                if (level % 5 === 1) {
+                    nextLevelScore *= 2;
+                } else {
+                    nextLevelScore += 100;
+                }
+                if (level % 5 === 0) {
+                    asteroids.length = 0;
+                    boss = createBoss();
+                } else {
+                    spawnAsteroids();
+                }
+            }
+        }
+
+        function spawnAsteroids() {
+            for (let i = 0; i < 5 + level; i++) {
+                asteroids.push(createAsteroid());
+            }
+        }
+
+        function gameOver() {
+            alert(`Game Over! Your score: ${score}`);
+            document.location.reload();
+        }
+
+        function fireBullet() {
+            bullets.push({ x: player.x, y: player.y });
+        }
+
+        // Touch controls
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            isDragging = true;
+            player.x = e.touches[0].clientX;
+            player.y = e.touches[0].clientY;
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (isDragging) {
+                player.x = e.touches[0].clientX;
+                player.y = e.touches[0].clientY;
+            }
+        });
+
+        canvas.addEventListener('touchend', () => {
+            isDragging = false;
+        });
+
+        fireButton.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            fireBullet();
+        });
+
+        // Keyboard controls
+        document.addEventListener('keydown', (e) => {
+            switch(e.key) {
+                case 'ArrowLeft':
+                case 'a':
+                    player.dx = -player.speed;
+                    break;
+                case 'ArrowRight':
+                case 'd':
+                    player.dx = player.speed;
+                    break;
+                case 'ArrowUp':
+                case 'w':
+                    player.dy = -player.speed;
+                    break;
+                case 'ArrowDown':
+                case 's':
+                    player.dy = player.speed;
+                    break;
+                case ' ':
+                    fireBullet();
+                    break;
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            switch(e.key) {
+                case 'ArrowLeft':
+                case 'ArrowRight':
+                case 'a':
+                case 'd':
+                    player.dx = 0;
+                    break;
+                case 'ArrowUp':
+                case 'ArrowDown':
+                case 'w':
+                case 's':
+                    player.dy = 0;
+                    break;
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            player.x = canvas.width / 2;
+            player.y = canvas.height - 60;
+        });
+
+        spawnAsteroids();
+        updateGame();
+    </script>
+</body>
+</html>
